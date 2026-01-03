@@ -15,10 +15,16 @@ Three study modes to enhance learning and retention:
 - **Explain**: Get explanations tailored to your level of understanding
 
 ### 🔬 Research
-- **Paper Importer**: Import research papers from arXiv with AI-powered summaries
-- Automatic PDF download and text extraction
+
+**Paper Importer** - Import research papers with AI-powered summaries:
+
+- **arXiv Integration**: Fetch metadata, download PDFs, extract text
+- **AlphaXiv Advanced Scraping** (NEW): Get enhanced content from AlphaXiv:
+  - 🎙️ **AI Podcast**: Download audio lecture with Q&A sessions
+  - 📝 **Transcript**: Full dialogue transcript in collapsible section
+  - 📄 **AI Article**: Advanced summary rendered with full KaTeX formulas and images
+- Automatic literature note creation with proper frontmatter
 - Customizable system and user prompts for analysis
-- Creates organized literature notes in your vault
 
 ### Core Features
 - **Multi-Provider AI**: Support for Gemini, OpenAI, and DeepSeek models
@@ -131,9 +137,23 @@ Folder path: `YourVault/.obsidian/plugins/ljoves-tools/`
 
 1. Select "Research"
 2. Enter an arXiv ID (e.g., `1706.03762`) or URL
-3. Review paper metadata and token count
-4. Customize prompts if desired
+3. **(NEW) Enable Advanced Scraping** to get enhanced content from AlphaXiv
+4. Review paper metadata and token count
 5. Generate summary and create a literature note
+
+#### AlphaXiv Advanced Scraping
+
+When enabled, AlphaXiv integration provides:
+
+- **AI Podcast**: Listen to audio lectures with Q&A sessions
+- **Transcript**: Read the full dialogue in an expandable section
+- **AI Article**: Advanced summary with rendered KaTeX formulas and images
+
+Notes include:
+- Audio player for podcast playback
+- Download links for MP3 files
+- Collapsible transcript section
+- Full HTML article with proper formula rendering
 
 ## API Configuration
 
@@ -191,6 +211,7 @@ ljoves-tools/
 │   │   ├── ExplainManager.ts  # Explanation feature
 │   │   ├── RecapManager.ts    # Recap/retention testing
 │   │   ├── PaperImporterManager.ts  # arXiv paper import
+│   │   ├── AlphaXivService.ts # AlphaXiv scraping (NEW)
 │   │   └── ImageService.ts    # Image handling
 │   ├── components/
 │   │   └── NoteSuggester.ts   # Note autocomplete
@@ -215,6 +236,7 @@ ljoves-tools/
 - **KaTeX** - Math rendering
 - **pdfjs-dist** - PDF text extraction
 - **@google/generative-ai** - Gemini SDK
+- **AlphaXiv Integration** - AI podcasts and enhanced summaries
 
 ## License
 

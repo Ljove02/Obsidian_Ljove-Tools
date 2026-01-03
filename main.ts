@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, ItemView, TFile, Notice, App, PluginSettingTab, Setting, FuzzySuggestModal, Modal } from 'obsidian';
+import { Plugin, WorkspaceLeaf, ItemView, TFile, Notice, App, PluginSettingTab, Setting, FuzzySuggestModal, Modal, normalizePath } from 'obsidian';
 import { ChatManager } from './src/services/ChatManager';
 import { AIService } from './src/services/AIService';
 import { ImageService } from './src/services/ImageService';
@@ -6,6 +6,7 @@ import { QuizManager } from './src/services/QuizManager';
 import { ExplainManager } from './src/services/ExplainManager';
 import { RecapManager } from './src/services/RecapManager';
 import { PaperImporterManager, PaperAnalysis } from './src/services/PaperImporterManager';
+import { AlphaXivService } from './src/services/AlphaXivService';
 import { NoteSuggester, ChatNoteSuggester } from './src/components/NoteSuggester';
 import { LjoveSToolsSettings, TestQuestion, TestData, TestResult, ImageAttachment, ChatMessage, ChatSession, DEFAULT_SETTINGS, AVAILABLE_MODELS, PROVIDERS } from './src/types';
 import { LatexRenderer } from './src/utils/LatexRenderer';
@@ -97,6 +98,7 @@ class LjoveSToolsView extends ItemView {
     private aiService: AIService;
     private imageService: ImageService;
     private latexRenderer: LatexRenderer;
+    private alphaXivService: AlphaXivService;
 
     // Feature Managers
     private chatManager: ChatManager | null = null;
@@ -109,12 +111,14 @@ class LjoveSToolsView extends ItemView {
     private paperAnalysis: PaperAnalysis | null = null;
     private paperSystemPrompt: string = '';
     private paperUserPrompt: string = '';
+    private enableAlphaXiv: boolean = false;
 
     constructor(leaf: WorkspaceLeaf, settings: LjoveSToolsSettings) {
         super(leaf);
         this.settings = settings;
         this.aiService = new AIService(settings);
         this.imageService = new ImageService(this.app);
+        this.alphaXivService = new AlphaXivService();
         this.latexRenderer = new LatexRenderer();
         this.noteInput = document.createElement('input');
     }
@@ -442,6 +446,21 @@ class LjoveSToolsView extends ItemView {
             attr: { placeholder: 'e.g., 1706.03762 or https://arxiv.org/abs/1706.03762' }
         });
 
+        // Advanced Scraping checkbox
+        const advancedContainer = form.createDiv({ cls: 'ljoves-tools-checkbox-container' });
+        const advancedCheckbox = advancedContainer.createEl('input', {
+            type: 'checkbox',
+            attr: { style: 'margin-right: 8px;' }
+        });
+        const advancedLabel = advancedContainer.createEl('label', {
+            text: 'Advanced Scraping (AlphaXiv) - Get AI summary, podcast & transcript',
+            attr: { style: 'cursor: pointer;' }
+        });
+
+        advancedCheckbox.addEventListener('change', () => {
+            this.enableAlphaXiv = advancedCheckbox.checked;
+        });
+
         const loadButton = form.createEl('button', {
             cls: 'ljoves-tools-button',
             type: 'button'
@@ -714,13 +733,86 @@ class LjoveSToolsView extends ItemView {
             const apiKey = this.aiService.getCurrentApiKey();
             const provider = this.aiService.getModelProvider();
 
-            // Build full prompt
+            // AlphaXiv integration variables
+            let alphaxivArticle: string | undefined;
+            let alphaxivUrl: string | undefined;
+            let podcastFile: TFile | undefined;
+            let transcriptText: string | undefined;
+
+            // Fetch AlphaXiv content if enabled
+            if (this.enableAlphaXiv) {
+                this.renderLoadingScreen('⏳ AI is analyzing...\n⏳ Fetching AlphaXiv content...');
+
+                const paperId = this.alphaXivService.extractPaperId(this.paperAnalysis.metadata.paperId);
+
+                if (paperId) {
+                    const { overview, resources } = this.alphaXivService.buildUrls(paperId);
+                    alphaxivUrl = overview;
+
+                    // Fetch article from overview page
+                    const articleResult = await this.alphaXivService.fetchArticle(paperId);
+                    if (articleResult.found && articleResult.html) {
+                        // Use raw HTML for proper rendering of formulas (KaTeX) and images
+                        alphaxivArticle = articleResult.html;
+                        console.log(`[AlphaXiv] Article fetched, length: ${alphaxivArticle.length} chars`);
+                    }
+
+                    // Fetch resources (podcast and transcript)
+                    const resourcesResult = await this.alphaXivService.fetchResources(paperId);
+                    if (resourcesResult.found) {
+                        // Download podcast if available
+                        if (resourcesResult.podcastUrl) {
+                            this.renderLoadingScreen('⏳ AI is analyzing...\n⏳ Fetching AlphaXiv content...\n⏳ Downloading podcast...');
+                            const podcastPath = normalizePath(`${this.settings.paperPDFFolder}/${paperId}-podcast.mp3`);
+
+                            // Check if podcast already exists
+                            const existingPodcast = this.app.vault.getAbstractFileByPath(podcastPath);
+                            if (existingPodcast instanceof TFile) {
+                                podcastFile = existingPodcast;
+                                console.log(`[AlphaXiv] Podcast already exists: ${podcastPath}`);
+                            } else {
+                                try {
+                                    const response = await require('obsidian').requestUrl({
+                                        url: resourcesResult.podcastUrl,
+                                        method: 'GET'
+                                    });
+
+                                    if (response.status === 200 && response.arrayBuffer) {
+                                        // Ensure folder exists
+                                        const folderPath = normalizePath(this.settings.paperPDFFolder);
+                                        if (!this.app.vault.getAbstractFileByPath(folderPath)) {
+                                            await this.app.vault.createFolder(folderPath);
+                                        }
+
+                                        podcastFile = await this.app.vault.createBinary(podcastPath, response.arrayBuffer);
+                                        console.log(`[AlphaXiv] Podcast downloaded: ${podcastPath}`);
+                                    }
+                                } catch (podcastError) {
+                                    console.error('[AlphaXiv] Failed to download podcast:', podcastError);
+                                }
+                            }
+                        }
+
+                        // Store transcript if available
+                        if (resourcesResult.transcript) {
+                            transcriptText = resourcesResult.transcript;
+                            console.log(`[AlphaXiv] Transcript found, length: ${transcriptText.length} chars`);
+                        }
+                    }
+                }
+            }
+
+            // Now generate AI summary
+            this.renderLoadingScreen('⏳ AI is analyzing the paper...');
+
+            // Build full prompt - shorter for advanced mode
+            const userPrompt = this.enableAlphaXiv
+                ? `Provide a concise summary (2-3 paragraphs) of this research paper. Focus on the main contribution and key findings.\n\nPaper Text:\n${this.paperAnalysis.textContent.slice(0, 30000)}`
+                : this.paperUserPrompt;
+
             const fullPrompt = `${this.paperSystemPrompt}
 
-${this.paperUserPrompt}
-
-Paper Text:
-${this.paperAnalysis.textContent}`;
+${userPrompt}`;
 
             // Generate summary (streaming)
             const summary = await this.aiService.streamAI(
@@ -733,13 +825,29 @@ ${this.paperAnalysis.textContent}`;
                 }
             );
 
-            // Create note
-            const noteFile = await this.paperImporterManager!.createPaperNote(
-                this.paperAnalysis.metadata,
-                summary,
-                this.paperAnalysis.pdfFile,
-                this.settings.paperNotesFolder
-            );
+            // Create note (advanced or regular)
+            let noteFile: TFile;
+            if (this.enableAlphaXiv) {
+                noteFile = await this.paperImporterManager!.createAdvancedPaperNote(
+                    this.paperAnalysis.metadata,
+                    summary,
+                    this.paperAnalysis.pdfFile,
+                    this.settings.paperNotesFolder,
+                    {
+                        alphaxivUrl,
+                        alphaxivArticle,
+                        podcastFile,
+                        transcriptText
+                    }
+                );
+            } else {
+                noteFile = await this.paperImporterManager!.createPaperNote(
+                    this.paperAnalysis.metadata,
+                    summary,
+                    this.paperAnalysis.pdfFile,
+                    this.settings.paperNotesFolder
+                );
+            }
 
             // Show success screen
             this.renderSuccessScreen(noteFile, summary);

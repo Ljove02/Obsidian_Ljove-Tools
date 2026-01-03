@@ -18,9 +18,6 @@ export interface PaperAnalysis {
     tokenCount: number;
 }
 
-/**
- * PaperImporterManager - Handles research paper importing and AI summarization
- */
 export class PaperImporterManager {
     private app: App;
     private settings: LjoveSToolsSettings;
@@ -295,17 +292,15 @@ export class PaperImporterManager {
 
         // Format authors for YAML
         const authorsYaml = `[${metadata.authors.join(', ')}]`;
-
-        // Build note content
         const noteContent = `---
-paper id: ${metadata.paperId}
+paper_id: "${metadata.paperId}"
 title: "${metadata.title.replace(/"/g, '\\"')}"
 authors: ${authorsYaml}
-publication date: ${metadata.date}
+publication_date: "${metadata.date}"
 abstract: "${metadata.abstract.replace(/"/g, '\\"')}"
 comments: "${metadata.comments.replace(/"/g, '\\"')}"
 pdf: "[[${pdfFile.path}]]"
-url: https://arxiv.org/abs/${metadata.paperId}
+url: "https://arxiv.org/abs/${metadata.paperId}"
 tags: [research]
 ---
 
@@ -320,5 +315,148 @@ ${summary}
         // Create note
         const file = await this.app.vault.create(notePath, noteContent);
         return file;
+    }
+
+    /**
+     * Create advanced paper note with AlphaXiv content
+     */
+    public async createAdvancedPaperNote(
+        metadata: PaperMetadata,
+        summary: string,
+        pdfFile: TFile,
+        folder: string,
+        options: {
+            alphaxivUrl?: string;
+            alphaxivArticle?: string;
+            podcastFile?: TFile;
+            transcriptText?: string;
+        }
+    ): Promise<TFile> {
+        // Sanitize title for filename
+        const safeTitle = metadata.title.replace(/[\/\\?%*:|"<>]/g, '-').replace(/\s+/g, ' ').trim();
+        const notePath = normalizePath(`${folder}/${safeTitle}.md`);
+
+        // Check if note exists
+        const existingNote = this.app.vault.getAbstractFileByPath(notePath);
+        let appendContent = '';
+
+        // If note exists, we'll append AlphaXiv content
+        if (existingNote instanceof TFile) {
+            const existingContent = await this.app.vault.read(existingNote);
+
+            // Check if already has AlphaXiv content
+            if (existingContent.includes('alphaxiv_url:')) {
+                new Notice('AlphaXiv content already exists in this note.');
+                return existingNote;
+            }
+
+            // Build additional content to append
+            appendContent = this.buildAlphaXivContent(metadata, options, true);
+        }
+
+        // Ensure folder exists
+        if (!this.app.vault.getAbstractFileByPath(normalizePath(folder))) {
+            await this.app.vault.createFolder(normalizePath(folder));
+        }
+
+        // Format authors for YAML
+        const authorsYaml = `[${metadata.authors.join(', ')}]`;
+
+        // Build podcast path if exists
+        const podcastPath = options.podcastFile ? `[[${options.podcastFile.path}]]` : '';
+
+        // Build the full note content
+        const noteContent = `---
+paper_id: "${metadata.paperId}"
+title: "${metadata.title.replace(/"/g, '\\"')}"
+authors: ${authorsYaml}
+publication_date: "${metadata.date}"
+abstract: "${metadata.abstract.replace(/"/g, '\\"')}"
+comments: "${metadata.comments.replace(/"/g, '\\"')}"
+pdf: "[[${pdfFile.path}]]"
+${podcastPath ? `podcast: "${podcastPath}"` : ''}
+url: "https://arxiv.org/abs/${metadata.paperId}"
+${options.alphaxivUrl ? `alphaxiv_url: "${options.alphaxivUrl}"` : ''}
+tags: [research${options.alphaxivUrl ? ', alphaxiv' : ''}]
+---
+
+# ${metadata.title}
+
+${this.buildAlphaXivContent(metadata, options, false)}
+
+## AI Summary
+
+${summary}
+
+---
+*Generated on ${new Date().toISOString().split('T')[0]}*
+`;
+
+        if (existingNote instanceof TFile) {
+            // Append to existing note
+            const existingContent = await this.app.vault.read(existingNote);
+            const updatedContent = existingContent + '\n\n---\n\n## AlphaXiv Content Added\n' + appendContent;
+            await this.app.vault.modify(existingNote, updatedContent);
+            new Notice('AlphaXiv content added to existing note.');
+            return existingNote;
+        } else {
+            // Create new note
+            const file = await this.app.vault.create(notePath, noteContent);
+            return file;
+        }
+    }
+
+    /**
+     * Build AlphaXiv content section
+     */
+    private buildAlphaXivContent(
+        metadata: PaperMetadata,
+        options: {
+            alphaxivUrl?: string;
+            alphaxivArticle?: string;
+            podcastFile?: TFile;
+            transcriptText?: string;
+        },
+        forAppend: boolean
+    ): string {
+        const parts: string[] = [];
+
+        // Audio player section
+        if (options.podcastFile) {
+            parts.push(`## Listen
+
+<audio controls src="${options.podcastFile.path}">
+  <a href="${options.podcastFile.path}">Download Podcast</a>
+</audio>
+`);
+        }
+
+        // Transcript section (before summary, collapsible)
+        if (options.transcriptText) {
+            parts.push(`<details>
+<summary>📝 Transcript</summary>
+
+${options.transcriptText}
+
+</details>
+`);
+        }
+
+        // AlphaXiv article section - use raw HTML for proper rendering of formulas and images
+        if (options.alphaxivArticle) {
+            parts.push(`## AlphaXiv Overview
+
+<div class="alphaxiv-article">
+${options.alphaxivArticle}
+</div>
+`);
+        }
+
+        // Link to AlphaXiv if available
+        if (options.alphaxivUrl) {
+            parts.push(`---\n[View on AlphaXiv](${options.alphaxivUrl})`);
+        }
+
+        return parts.join('\n');
     }
 }
