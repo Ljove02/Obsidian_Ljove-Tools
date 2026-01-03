@@ -1,0 +1,10 @@
+{
+  "id": "ljoves-tools",
+  "name": "LjoveS Tools",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "AI-powered learning assistant with chat, quizzes, and research tools",
+  "author": "LjoveS",
+  "authorUrl": "https://github.com/ljoves/ljoves-tools",
+  "isDesktopOnly": false
+}

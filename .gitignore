@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+main.js
+*.js.map
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Obsidian
+*.vault backup
+.trash/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temp files
+*.tmp
+*.temp
+
+# Local AI agent configs (not for GitHub)
+AGENTS.md
+CLAUDE.md
+SYSTEM_PROMPT_LOCATION.md
+.cursor/
+.cursorrules
+.github/copilot-instructions.md
+
+# Personal local scripts
+verify-install.sh
